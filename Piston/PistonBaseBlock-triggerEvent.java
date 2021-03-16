@@ -12,7 +12,7 @@ boolean triggerEvent(blockState, level, blockPos, n, n2) {
         //如果被充能,而方块事件为需要收回或瞬推
         if (bl && (n == 1 || n == 2)) {
             //将活塞设置成推出状态
-            //flags:0b00000010 方块更新 无状态更新
+            //flags:0b00000010 寻路更新
             level.setBlock(blockPos, blockState.setValue(EXTENDED, true), 2);
             return false;
         }
@@ -24,7 +24,7 @@ boolean triggerEvent(blockState, level, blockPos, n, n2) {
         //移动前方方块
         if (!moveBlocks(level, blockPos, direction, true)) return false;
         //将活塞设置为推出状态
-        //flags:0b01000011 状态更新 方块更新 方块更新输出信号
+        //flags:0b01000011 调用onPlace/onRemove 寻路更新 方块更新/CUD
         level.setBlock(blockPos, blockState.setValue(EXTENDED, true), 67);
         //播放活塞推出的声音
         level.playSound(null, blockPos, SoundEvents.PISTON_EXTEND, SoundSource.BLOCKS, 0.5f, level.random.nextFloat() * 0.25f + 0.6f);
@@ -43,7 +43,7 @@ boolean triggerEvent(blockState, level, blockPos, n, n2) {
         }
         //将活塞设置成b36
         blockState2 = (Blocks.MOVING_PISTON.defaultBlockState().setValue(MovingPistonBlock.FACING, direction)).setValue(MovingPistonBlock.TYPE, isSticky ? PistonType.STICKY : PistonType.DEFAULT);
-        //flags:0b00010100 方块更新 无状态更新
+        //flags:0b00010100 无形状更新 寻路更新 客户端
         level.setBlock(blockPos, blockState2, 20);
         //将该位置设置成b36方块实体
         level.setBlockEntity(blockPos, MovingPistonBlock.newMovingBlockEntity(defaultBlockState().setValue(FACING, Direction.from3DDataValue(n2 & 7)), direction, false, true));
@@ -92,7 +92,7 @@ boolean moveBlocks(level, blockPos, direction, bl) {
     //如果是收回且活塞头的位置是活塞头
     if (!bl && level.getBlockState(blockPos2).is(Blocks.PISTON_HEAD)) {
         //将活塞头的位置设为空气
-        //flags:0b00010100 方块更新 无状态更新
+        //flags:0b00010100 无形状更新 寻路更新 客户端
         level.setBlock(blockPos2, Blocks.AIR.defaultBlockState(), 20);
     }
     //分析移动结构,如果不能移动就不移动
@@ -127,7 +127,7 @@ boolean moveBlocks(level, blockPos, direction, bl) {
         //掉落方块实体的物品
         PistonBaseBlock.dropResources(object22, level, (BlockPos)object3, (BlockEntity)object);
         //将该方块设置成空气
-        //flags:0b00010010 18 方块更新 无状态更新
+        //flags:0b00010010 18 无形状更新 寻路更新
         level.setBlock((BlockPos)object3, Blocks.AIR.defaultBlockState(), 18);
         //添加到列表中
         arrblockState[n3++] = object22;
@@ -141,7 +141,7 @@ boolean moveBlocks(level, blockPos, direction, bl) {
         //删除哈希表中方块
         hashMap.remove(object3);
         //将该方块设置成b36
-        //flags: 0b01101000 状态更新 无方块更新
+        //flags: 0b01101000 调用onPlace/onRemove 
         level.setBlock((BlockPos)object3, Blocks.MOVING_PISTON.defaultBlockState().setValue(FACING, direction), 68);
         //将该方块设置成b36方块实体
         level.setBlockEntity((BlockPos)object3, MovingPistonBlock.newMovingBlockEntity(arrayList.get(n), direction, bl, false));
@@ -157,7 +157,7 @@ boolean moveBlocks(level, blockPos, direction, bl) {
         //从哈希表中删除
         hashMap.remove(blockPos2);
         //将活塞头的位置设置成b36
-        //flags: 0b01101000 状态更新 无方块更新
+        //flags: 0b01101000 调用onPlace/onRemove
         level.setBlock(blockPos2, blockState, 68);
         //将活塞头的位置设置成b36方块实体
         level.setBlockEntity(blockPos2, MovingPistonBlock.newMovingBlockEntity(object3, direction, true, true));
@@ -166,17 +166,18 @@ boolean moveBlocks(level, blockPos, direction, bl) {
     //对于哈希表中剩下的方块位置
     for (blockPos3 : hashMap.keySet()) {
         //设置成空气
-        //flags: 0b01010010 状态更新 方块更新
+        //flags: 0b01010010 调用onPlace/onRemove 无形状更新 寻路更新
         level.setBlock(blockPos3, blockState, 82);
     }
     //对于哈希表中的所有方块
     for (entry : hashMap.entrySet()) {
         object = (BlockPos)entry.getKey();
         blockState2 = entry.getValue();
-        //给出间接形状更新(自身)
+        //红石粉间接位置更新
         blockState2.updateIndirectNeighbourShapes(level, (BlockPos)object, 2);
+        //形状更新
         blockState.updateNeighbourShapes(level, (BlockPos)object, 2);
-        //给出间接形状更新(空气)
+        //红石粉间接位置更新
         blockState.updateIndirectNeighbourShapes(level, (BlockPos)object, 2);
     }
     n3 = 0;
@@ -184,7 +185,7 @@ boolean moveBlocks(level, blockPos, direction, bl) {
     for (n2 = destroyList.size() - 1; n2 >= 0; --n2) {
         blockState3 = arrblockState[n3++];
         object = destroyList.get(n2);
-        //给出间接形状更新(自身)
+        //红石粉间接位置更新
         blockState3.updateIndirectNeighbourShapes(level, (BlockPos)object, 2);
         //给出方块更新
         level.updateNeighborsAt((BlockPos)object, blockState3.getBlock());/
