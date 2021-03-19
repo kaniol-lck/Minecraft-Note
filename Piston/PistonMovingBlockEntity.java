@@ -1,4 +1,4 @@
-//直接进入到该方块实体的最后一次运算,将b36方块实体变回普通方块
+//瞬间到位，将b36方块实体变回普通方块
 void finalTick() {
     //存在世界且进度未满或客户端运算
     if (level != null && (progressO < 1.0f || level.isClientSide)) {
@@ -9,11 +9,11 @@ void finalTick() {
         setRemoved();
         //如果此处为b36方块
         if (level.getBlockState(worldPosition).is(Blocks.MOVING_PISTON)) {
-            //为活塞b36则为空气,否则给出形状更新
+            //是否为产生移动的活塞？是则变为空气，否则在形状更新后到位
             blockState = isSourcePiston ? Blocks.AIR.defaultBlockState() : Block.updateFromNeighbourShapes(movedState, level, worldPosition);
             //设置方块
             level.setBlock(worldPosition, blockState, 3);
-            //给出方块更新
+            //发出方块更新
             level.neighborChanged(worldPosition, blockState.getBlock(), worldPosition);
         }
     }
@@ -70,4 +70,28 @@ void tick() {
     if (progress >= 1.0f) {
         progress = 1.0f;
     }
+}
+
+VoxelShape getCollisionShape(blockGetter, blockPos) {
+    //如果是正在收回的源活塞b36，则使用伸出活塞底座的的碰撞体积
+    voxelShape = !extending && isSourcePiston
+            ? ((BlockState) movedState.setValue(PistonBaseBlock.EXTENDED, true)).getCollisionShape(blockGetter,
+                    blockPos)
+            : Shapes.empty();
+    direction = NOCLIP.get();
+    if ((double) progress < 1.0 && direction == getMovementDirection()) {
+        return voxelShape;
+    }
+    //如果是源活塞，则使用活塞头的碰撞体积，否则使用被移动方块的碰撞体积
+     blockState = isSourcePiston()
+            ? (BlockState) ((BlockState) Blocks.PISTON_HEAD.defaultBlockState().setValue(PistonHeadBlock.FACING,
+                    direction)).setValue(PistonHeadBlock.SHORT, extending != 1.0f - progress < 0.25f)
+            : movedState;
+    //根据进度移动碰撞体积
+    f = getExtendedProgress(progress);
+    d = (float) direction.getStepX() * f;
+    d2 = (float) direction.getStepY() * f;
+    d3 = (float) direction.getStepZ() * f;
+    //结合上述两个碰撞体积
+    return Shapes.or(voxelShape, blockState.getCollisionShape(blockGetter, blockPos).move(d, d2, d3));
 }

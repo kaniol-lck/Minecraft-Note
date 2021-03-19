@@ -1,5 +1,5 @@
 //执行方块事件
-//n = 0, 推出
+//n = 0, 伸出
 //n = 1, 收回
 //n = 2, 瞬推收回
 boolean triggerEvent(blockState, level, blockPos, n, n2) {
@@ -11,22 +11,22 @@ boolean triggerEvent(blockState, level, blockPos, n, n2) {
         bl = getNeighborSignal(level, blockPos, direction);
         //如果被充能,而方块事件为需要收回或瞬推
         if (bl && (n == 1 || n == 2)) {
-            //将活塞设置成推出状态
+            //将活塞设置成伸出状态
             //flags:0b00000010 寻路更新
             level.setBlock(blockPos, blockState.setValue(EXTENDED, true), 2);
             return false;
         }
-        //如果没有充能,方块事件为推出,则取消该方块事件
+        //如果没有充能,方块事件为伸出,则取消该方块事件
         if (!bl && n == 0) return false;
     }
-    //推出事件
+    //伸出事件
     if (n == 0) {
         //移动前方方块
         if (!moveBlocks(level, blockPos, direction, true)) return false;
-        //将活塞设置为推出状态
-        //flags:0b01000011 调用onPlace/onRemove 寻路更新 方块更新/CUD
+        //将活塞设置为伸出状态
+        //flags:0b01000011 放置移除更新 寻路更新 方块更新/CUD
         level.setBlock(blockPos, blockState.setValue(EXTENDED, true), 67);
-        //播放活塞推出的声音
+        //播放活塞伸出的声音
         level.playSound(null, blockPos, SoundEvents.PISTON_EXTEND, SoundSource.BLOCKS, 0.5f, level.random.nextFloat() * 0.25f + 0.6f);
         return true;
     } else {
@@ -53,11 +53,11 @@ boolean triggerEvent(blockState, level, blockPos, n, n2) {
         blockState2.updateNeighbourShapes(level, blockPos, 2);
         //如果是粘性活塞
         if (isSticky) {
-            //推出方向一格之外的位置
+            //伸出方向一格之外的位置
             blockPos2 = blockPos.offset(direction.getStepX() * 2, direction.getStepY() * 2, direction.getStepZ() * 2);
             blockState3 = level.getBlockState(blockPos2);
             bl = false;
-            //如果这个方块是b36且方向为该活塞推出方向且处于推出状态(瞬推收回)
+            //如果这个方块是b36且方向为该活塞伸出方向且处于伸出状态(瞬推收回)
             if (blockState3.is(Blocks.MOVING_PISTON) && (blockEntity2 = level.getBlockEntity(blockPos2)) instanceof PistonMovingBlockEntity && (pistonMovingBlockEntity = (PistonMovingBlockEntity)blockEntity2).getDirection() == direction && pistonMovingBlockEntity.isExtending()) {
                 //将其变回普通方块
                 pistonMovingBlockEntity.finalTick();
@@ -84,7 +84,7 @@ boolean triggerEvent(blockState, level, blockPos, n, n2) {
     return true;
 }
 
-//bl = true, 推出
+//bl = true, 伸出
 //bl = false, 收回
 boolean moveBlocks(level, blockPos, direction, bl) {
     //活塞头的位置
@@ -148,7 +148,7 @@ boolean moveBlocks(level, blockPos, direction, bl) {
         //添加到列表中
         arrblockState[n3++] = blockState;
     }
-    //如果是推出
+    //如果是伸出
     if (bl) {
         //准备活塞头b36
         pistonType = isSticky ? PistonType.STICKY : PistonType.DEFAULT;
@@ -195,7 +195,7 @@ boolean moveBlocks(level, blockPos, direction, bl) {
         //给出方块更新
         level.updateNeighborsAt(pushList.get(n2), arrblockState[n3++].getBlock());
     }
-    //如果是推出
+    //如果是伸出
     if (bl) {
         //活塞头给出方块更新
         level.updateNeighborsAt(blockPos2, Blocks.PISTON_HEAD);
