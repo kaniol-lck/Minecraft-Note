@@ -156,7 +156,7 @@ void checkIfExtend(level, blockPos, blockState) {
 }
 ```
 
-### 移动结构分析与优先级
+### 移动结构分析与移动顺序
 
 游戏会使用一个叫做`PistonStructureResolver`的类来分析活塞的移动结构，统计活塞会推动或收回哪些方块，并限制活塞只能推动12个方块，不能推动一些推不动的方块，并顺便确定在移动过程中破坏哪些方块。
 
@@ -294,7 +294,7 @@ boolean resolve() {
 
 重排会交换拉动结构与推动结构的顺序。
 
-【WIP：重排了啥】
+【WIP：为啥重排，重排了啥，可能有误】
 
 如果正向推动的前方为空气，那也就意味着该直线结构的结束。
 
@@ -417,6 +417,10 @@ private boolean addBranchingBlocks(blockPos) {
 - 分支按照“东西南北上下”的顺序移动
 - 越远的分支越先移动
 
+对于上述分析，也可以参考这一专栏文章，作者虽然说没有读过源码，全凭经验与实践得出的分析方法，但与实际游戏实现极其接近：[Minecraft 绿萌被活塞移动时的处理顺序](https://www.bilibili.com/read/cv6669136)
+
+如果不想手动分析移动结构，可以使用[pistorder](https://github.com/Fallen-Breath/pistorder) mod来可视化显示活塞的移动结构。
+
 ### 方块事件
 
 上面提到，当活塞经过自检，发现需要或伸出或收回时会添加至方块事件中，到了游戏运算方块事件的阶段，才会执行这一伸出或收回的操作。
@@ -425,7 +429,7 @@ private boolean addBranchingBlocks(blockPos) {
 
 #### 伸出事件
 
-如果这是一个伸出事件，活塞会尝试移动前方方块，如果成功就将自己直接设置成伸出状态，受到放置移除更新并发出发出寻路更新和方块更新，播放活塞伸出的音效。
+如果这是一个伸出事件，活塞会尝试移动前方方块，如果成功就将自己直接设置成伸出状态，抑制移除运算，并发出发出方块更新，播放活塞伸出的音效。
 
 #### 收回事件
 
@@ -433,7 +437,7 @@ private boolean addBranchingBlocks(blockPos) {
 
 与活塞推出时底座直接设置成成伸出状态不同，收回时会将底座先变成b36，然后发出形状更新与方块更新。
 
-如果是粘性活塞的话，它可能会拉回前方的方块。它伸出方向的前一格为同方向推出的b36方块，那么就会令其**强制到位**，且不会拉回方块，这就是粘性活塞受到短脉冲的丢方块特性。粘性活塞会检查这些条件
+如果是粘性活塞的话，它可能会拉回前方的方块。它伸出方向的前一格为同方向推出的b36方块，那么就会令其**强制到位**，且不会拉回方块，这就是粘性活塞受到短脉冲的丢方块特性。粘性活塞会检查这些条件：
 
 - 添加方块事件时，没有：这个方块是b36且朝向与当前活塞方向相同且为伸出的情况且伸出的进度不到一半或在同一tick内或正在处理该tick
 - 伸出方向的前一格不为空气
@@ -452,7 +456,7 @@ private boolean addBranchingBlocks(blockPos) {
 
 ```java
 //执行方块事件
-//n = 0, 推出
+//n = 0, 伸出
 //n = 1, 收回
 //n = 2, 瞬推收回
 boolean triggerEvent(blockState, level, blockPos, n, n2) {
@@ -460,69 +464,68 @@ boolean triggerEvent(blockState, level, blockPos, n, n2) {
     direction = blockState.getValue(FACING);
     //非客户端
     if (!level.isClientSide) {
-        //检查充能情况
+        //检查激活情况
         bl = getNeighborSignal(level, blockPos, direction);
-        //如果被充能,而方块事件为需要收回或瞬推
+        //如果激活,而方块事件为收回或瞬推收回
         if (bl && (n == 1 || n == 2)) {
-            //将活塞设置成推出状态
+            //将活塞设置成伸出状态
             //flags:0b00000010 寻路更新
             level.setBlock(blockPos, blockState.setValue(EXTENDED, true), 2);
             return false;
         }
-        //如果没有充能,方块事件为推出,则取消该方块事件
+        //如果没有激活,而方块事件为伸出,方块事件执行失败
         if (!bl && n == 0) return false;
     }
-    //推出事件
+    //伸出事件及瞬推收回事件
     if (n == 0) {
-        //移动前方方块
+        //移动前方方块，若无法移动，则方块事件执行失败
         if (!moveBlocks(level, blockPos, direction, true)) return false;
-        //将活塞设置为推出状态
-        //flags:0b01000011 调用onPlace/onRemove 寻路更新 方块更新/CUD
+        //将活塞设置为伸出状态
+        //flags:0b01000011 抑制移除运算 寻路更新 方块更新
         level.setBlock(blockPos, blockState.setValue(EXTENDED, true), 67);
-        //播放活塞推出的声音
+        //播放活塞伸出的声音
         level.playSound(null, blockPos, SoundEvents.PISTON_EXTEND, SoundSource.BLOCKS, 0.5f, level.random.nextFloat() * 0.25f + 0.6f);
+        //方块事件执行成功
         return true;
-    } else {
-        //其他方块事件(?) 返回
+    } else {//收回事件
+        //其他方块事件(?),返回
         if (n != 1 && n != 2) return true;
-
-        //收回或瞬推收回事件
-
         //活塞头位置的方块实体
         blockEntity = level.getBlockEntity(blockPos.relative(direction));
-        //如果是b36,则将其变回普通方块
-        if (blockEntity instanceof PistonMovingBlockEntity) {
-            ((PistonMovingBlockEntity)blockEntity).finalTick();
-        }
+        //如果是b36,则使其瞬间到位
+        if (blockEntity instanceof PistonMovingBlockEntity)((PistonMovingBlockEntity)blockEntity).finalTick();
         //将活塞设置成b36
         blockState2 = (Blocks.MOVING_PISTON.defaultBlockState().setValue(MovingPistonBlock.FACING, direction)).setValue(MovingPistonBlock.TYPE, isSticky ? PistonType.STICKY : PistonType.DEFAULT);
-        //flags:0b00010100 无形状更新 寻路更新 客户端
+        //flags:0b00010100 无形状更新 寻路更新
         level.setBlock(blockPos, blockState2, 20);
-        //将该位置设置成b36方块实体
+        //设置成b36方块实体
         level.setBlockEntity(blockPos, MovingPistonBlock.newMovingBlockEntity(defaultBlockState().setValue(FACING, Direction.from3DDataValue(n2 & 7)), direction, false, true));
-        //给该位置一个方块更新
+        //发出方块更新
         level.blockUpdated(blockPos, blockState2.getBlock());
-        //给该位置一个形状更新
+        //发出形状更新
         blockState2.updateNeighbourShapes(level, blockPos, 2);
         //如果是粘性活塞
         if (isSticky) {
-            //推出方向一格之外的位置
+            //伸出方向一格之外的位置
             blockPos2 = blockPos.offset(direction.getStepX() * 2, direction.getStepY() * 2, direction.getStepZ() * 2);
             blockState3 = level.getBlockState(blockPos2);
             bl = false;
-            //如果这个方块是b36且方向为该活塞推出方向且处于推出状态(瞬推收回)
+            //如果这个方块是b36且且与活塞同向推出
             if (blockState3.is(Blocks.MOVING_PISTON) && (blockEntity2 = level.getBlockEntity(blockPos2)) instanceof PistonMovingBlockEntity && (pistonMovingBlockEntity = (PistonMovingBlockEntity)blockEntity2).getDirection() == direction && pistonMovingBlockEntity.isExtending()) {
-                //将其变回普通方块
+                //让该方块瞬间到位
                 pistonMovingBlockEntity.finalTick();
                 bl = true;
             }
-            //如果不是上面的情况(正常收回)
+            //如果不是上面的情况
             if (!bl) {
-                //如果是收回事件且该方块不是空气且活塞可以拉动且该方块能被正常移动或该方块是活塞/粘性活塞
+                //如果是收回事件
+                //且该方块不是空气
+                //且活塞可以移动前方一格的方块
+                //且该方块能被正常移动或该方块是活塞/粘性活塞
                 if (n == 1 && !blockState3.isAir() && PistonBaseBlock.isPushable(blockState3, level, blockPos2, direction.getOpposite(), false, direction) && (blockState3.getPistonPushReaction() == PushReaction.NORMAL || blockState3.is(Blocks.PISTON) || blockState3.is(Blocks.STICKY_PISTON))) {
-                    //拉动前方方块
+                    //移动前方方块
                     moveBlocks(level, blockPos, direction, false);
-                } else {//前方方块没有方块被拉动
+                } else {//前方一格的方块不能被拉动
                     //删除活塞臂位置的方块
                     level.removeBlock(blockPos.relative(direction), false);
                 }
@@ -540,32 +543,22 @@ boolean triggerEvent(blockState, level, blockPos, n, n2) {
 
 #### 移动方块
 
-在活塞的伸出事件以及粘性活塞的收回事件且前方方块现在开始准备移动方块。
+活塞伸出的时候，以及粘性活塞收回且伸出前一格方块可拉时会尝试移动方块。
 
-如果是打算收回方块，那么会先将当前活塞头的位置设为空气来为后面的方块移动腾出空间。
+如果是打算收回方块，那么会先将当前活塞头删除来为拉动方块腾出空间。
 
-在正式移动之前，会再次分析移动结构，如果发现有阻碍无法就会结束这个函数，不会移动方块。
+在正式移动之前，会再次分析移动结构，如果发现此时的移动结构无法被移动，就会结束这一步，不会移动方块。
 
-首先，会创建一个哈希表，这个哈希的作用是保存方块移动前的位置，以便在移动后删除原位置的方块。
+根据分析的移动结构，可以获取到一个移动方块列表和一个破坏方块列表。活塞会先破坏方块，根据破坏方块列表**逆序**依次破坏方块；然后移动方块，根据移动方块列表**逆序**依次移动方块。因为分析活塞推动时是由近到远，而移动方块需要先移动的方块不能覆盖到未移动的方块上，所以在这里需要逆序使得移动方向较前的先移动。实际方块移动顺序如前所述。活塞会在待移动方块沿移动方向的前一格，也就是移动的目标位置创建该方块对应的b36方块。在这一步中破坏与移动都不会发出方块更新，破坏方块不发出形状更新而移动方块会发出形状更新。
 
-根据分析的移动结构，可以获取到一个移动方块的列表和一个破坏方块的列表。先将移动方块列表中的所有方块添加至列表及哈希表中。
+如果是活塞伸出，在活塞头的位置创建对应的活塞头b36。不发出方块更新只发出形状更新。
 
-活塞会先破坏方块，根据移动结构分析得到的破坏方块列表**逆序**依次破坏方块。设置方块为空气来删除方块。然后将这些方块添加到列表中。此处设置方块不产生状态更新，但产生方块更新。
+在移动的过程中，只在目标位置创建了b36方块，而没有对原位置的方块进行操作，在这一步中才会删除没有被移动目标位置及活塞头覆盖位置的方块，抑制移除运算，依然不会发出方块更新及形状更新。
 
-然后移动方块，根据移动结构分析得到的移动方块**逆序**移动方块。因为分析活塞推动时是由近到远，而移动方块需要先移动的方块不能覆盖到未移动的方块上，所以在这里需要逆序使得移动方向较前的先移动。实际方块移动顺序如前所述。活塞会在待移动方块沿移动方向的前一格创建该方块对应的b36。此处设置方块不产生方块更新，但产生状态更新。
-
-破坏并移动完所有方块后，如果是活塞伸出事件，需要将活塞头伸出，将活塞头的位置设置成粘性活塞或普通活塞对应的活塞头b36。并从哈希表中移除这个位置。此处设置方块不产生方块更新，但产生状态更新。
-
-此时将哈希表中没有移除的方块位置全部设置成空气。然后给这些方块状态更新。
-
-接下来会是破坏方块列表给出的更新，给出状态更新和方块更新。
-
-最后给出更新的是活塞头，不过只会在伸出状态时给出更新，如果粘性活塞正常收回时，活塞头位置的方块由移动的方块给出，但若不能正常收回，此处既不会给出方块更新，也不会给出状态更新，那么可以利用这一不更新特性制作浮空水、浮空告示牌等。
-
-![6](images\6.gif)
+最后才统一发出更新，先是未被覆盖的位置发出形状更新及红石粉相关的形状更新。然后所有方块被破坏的位置发出形状更新，所有移动的原位置发出方块更新。如果是伸出，活塞头发出方块更新。
 
 ```java
-//bl = true, 推出
+//bl = true, 伸出
 //bl = false, 收回
 boolean moveBlocks(level, blockPos, direction, bl) {
     //活塞头的位置
@@ -573,6 +566,7 @@ boolean moveBlocks(level, blockPos, direction, bl) {
     //如果是收回且活塞头的位置是活塞头
     if (!bl && level.getBlockState(blockPos2).is(Blocks.PISTON_HEAD)) {
         //将活塞头的位置设为空气
+        //flags:0b00010100 无形状更新 寻路更新 客户端
         level.setBlock(blockPos2, Blocks.AIR.defaultBlockState(), 20);
     }
     //分析移动结构,如果不能移动就不移动
@@ -581,11 +575,11 @@ boolean moveBlocks(level, blockPos, direction, bl) {
     }
     hashMap = Maps.newHashMap();
     //创建移动方块列表
-    list = pistonStructureResolver.getToPush();
+    pushList = pistonStructureResolver.getToPush();
     arrayList = Lists.newArrayList();
     //移动方块列表中的所有方块
-    for (int i = 0; i < list.size(); ++i) {
-        arrblockState = list.get(i);
+    for (int i = 0; i < pushList.size(); ++i) {
+        arrblockState = pushList.get(i);
         object2 = level.getBlockState((BlockPos)arrblockState);
         //添加到列表中
         arrayList.add(object2);
@@ -593,39 +587,42 @@ boolean moveBlocks(level, blockPos, direction, bl) {
         hashMap.put(arrblockState, object2);
     }
     //创建破坏方块列表
-    list2 = pistonStructureResolver.getToDestroy();
+    destroyList = pistonStructureResolver.getToDestroy();
     //创建一个移动方块+破坏方块的列表
-    arrblockState = new BlockState[list.size() + list2.size()];
+    arrblockState = new BlockState[pushList.size() + destroyList.size()];
     //确定移动方向
-    object2 = bl ? direction : direction.getOpposite();
+    moveDirection = bl ? direction : direction.getOpposite();
     int n3 = 0;
     //破坏方块列表 从后到前
-    for (n = list2.size() - 1; n >= 0; --n) {
-        object3 = list2.get(n);
+    for (n = destroyList.size() - 1; n >= 0; --n) {
+        object3 = destroyList.get(n);
         object22 = level.getBlockState((BlockPos)object3);
         object = object22.getBlock().isEntityBlock() ? level.getBlockEntity((BlockPos)object3) : null;
         //掉落方块实体的物品
         PistonBaseBlock.dropResources(object22, level, (BlockPos)object3, (BlockEntity)object);
         //将该方块设置成空气
-        level.setBlock((BlockPos)object3, Blocks.AIR.defaultBlockState(), 18);//添加到列表中
+        //flags:0b00010010 无形状更新 寻路更新
+        level.setBlock((BlockPos)object3, Blocks.AIR.defaultBlockState(), 18);
+        //添加到列表中
         arrblockState[n3++] = object22;
     }
     //移动方块列表 从后到前
-    for (n = list.size() - 1; n >= 0; --n) {
-        object3 = list.get(n);
+    for (n = pushList.size() - 1; n >= 0; --n) {
+        object3 = pushList.get(n);
         blockState = level.getBlockState((BlockPos)object3);
         //移动目的地的方块
-        object3 = ((BlockPos)object3).relative((Direction)object2);
+        object3 = ((BlockPos)object3).relative(oveDirection);
         //删除哈希表中方块
         hashMap.remove(object3);
         //将该方块设置成b36
+        //flags: 0b01101000 抑制移除运算
         level.setBlock((BlockPos)object3, Blocks.MOVING_PISTON.defaultBlockState().setValue(FACING, direction), 68);
         //将该方块设置成b36方块实体
         level.setBlockEntity((BlockPos)object3, MovingPistonBlock.newMovingBlockEntity(arrayList.get(n), direction, bl, false));
         //添加到列表中
         arrblockState[n3++] = blockState;
     }
-    //如果是推出
+    //如果是伸出
     if (bl) {
         //准备活塞头b36
         pistonType = isSticky ? PistonType.STICKY : PistonType.DEFAULT;
@@ -634,6 +631,7 @@ boolean moveBlocks(level, blockPos, direction, bl) {
         //从哈希表中删除
         hashMap.remove(blockPos2);
         //将活塞头的位置设置成b36
+        //flags: 0b01101000 抑制移除运算
         level.setBlock(blockPos2, blockState, 68);
         //将活塞头的位置设置成b36方块实体
         level.setBlockEntity(blockPos2, MovingPistonBlock.newMovingBlockEntity(object3, direction, true, true));
@@ -642,34 +640,36 @@ boolean moveBlocks(level, blockPos, direction, bl) {
     //对于哈希表中剩下的方块位置
     for (blockPos3 : hashMap.keySet()) {
         //设置成空气
+        //flags: 0b01010010 抑制移除运算 无形状更新 寻路更新
         level.setBlock(blockPos3, blockState, 82);
     }
     //对于哈希表中的所有方块
     for (entry : hashMap.entrySet()) {
         object = (BlockPos)entry.getKey();
         blockState2 = entry.getValue();
-        //给出间接形状更新(自身)
+        //红石粉间接位置更新
         blockState2.updateIndirectNeighbourShapes(level, (BlockPos)object, 2);
+        //形状更新
         blockState.updateNeighbourShapes(level, (BlockPos)object, 2);
-        //给出间接形状更新(空气)
+        //红石粉间接位置更新
         blockState.updateIndirectNeighbourShapes(level, (BlockPos)object, 2);
     }
     n3 = 0;
     //对于破坏方块列表中的所有方块
-    for (n2 = list2.size() - 1; n2 >= 0; --n2) {
+    for (n2 = destroyList.size() - 1; n2 >= 0; --n2) {
         blockState3 = arrblockState[n3++];
-        object = list2.get(n2);
-        //给出间接形状更新(自身)
+        object = destroyList.get(n2);
+        //红石粉间接位置更新
         blockState3.updateIndirectNeighbourShapes(level, (BlockPos)object, 2);
         //给出方块更新
-        level.updateNeighborsAt((BlockPos)object, blockState3.getBlock());/
+        level.updateNeighborsAt((BlockPos)object, blockState3.getBlock());
     }
     //对于移动方块列表中的所有方块
-    for (n2 = list.size() - 1; n2 >= 0; --n2) {
+    for (n2 = pushList.size() - 1; n2 >= 0; --n2) {
         //给出方块更新
-        level.updateNeighborsAt(list.get(n2), arrblockState[n3++].getBlock());
+        level.updateNeighborsAt(pushList.get(n2), arrblockState[n3++].getBlock());
     }
-    //如果是推出
+    //如果是伸出
     if (bl) {
         //活塞头给出方块更新
         level.updateNeighborsAt(blockPos2, Blocks.PISTON_HEAD);
@@ -691,7 +691,7 @@ boolean moveBlocks(level, blockPos, direction, bl) {
 
 该位置的瞬间到位的通常会出现在活塞还没有完成推动时，将处于b36状态的活塞头变回普通方块，确保收回动作可以正确完成。
 
-无论是粘性活塞还是普通活塞，都需要将其强制到位，并且不限b36的朝向。
+无论是粘性活塞还是普通活塞，都会将其强制到位，并且不限b36的朝向。
 
 ![5](images\5.gif)
 
@@ -701,7 +701,7 @@ boolean moveBlocks(level, blockPos, direction, bl) {
 
 无头粘性活塞收回事件中：将活塞头位置的玻璃b36方块瞬间到位，试图拉回更前方一格的玻璃，由于移动的玻璃瞬间到位的插入，拉动列表中存在粘性活塞自身，无法拉动。
 
-所以粘性活塞前方一格处的玻璃的作用是为了让粘性活塞试图移动前方方块失败，否则无头粘性活塞将在这一步直接删除刚刚强制到位的玻璃。
+所以粘性活塞前方一格处的玻璃的作用是为了让粘性活塞尝试移动前方方块失败，否则无头粘性活塞将在这一步直接删除刚刚强制到位的玻璃。
 
 ##### 粘性活塞伸出方向一格外位置瞬间到位
 
@@ -738,6 +738,143 @@ boolean moveBlocks(level, blockPos, direction, bl) {
 如图所示，这就完成了一次粘液块结构的拆解。瞬推后第一个方块瞬间到位后的拆解可以使用推或拉，使用粘性活塞或普通活塞都可以，但需要保证这一移动的方块事件需要在瞬推收回的方块事件之后，否则活塞无法移动还没有到位的b36。
 
 ![2](images\2.gif)
+
+### 更新顺序
+
+讲述完所有活塞动作后，我们可以总结以下活塞的激活过程中，究竟给出了哪些更新。在这里，我描述的更新会更详细一些，在这里先简单地表述一下我对方块更新概念的定义：
+
+更新可以分为许多种，指的是当一个方块发生变化使周围发生响应，做出响应更改的过程，当一个方块变化时，它会向四周发出更新信号，称这个方块发出了更新，或者这个方块的毗邻位置受到了更新。更新不一定需要其他方块发出，也可能方块更新了自己；更新也可能不由方块接受，生物AI可以在方块更改后重新计算路径，也响应了这一更新。
+
+方块更新，对应代码中的`neighborChanged()`，又被称为NC更新，该更新通常由某一方块发出，更新其六个方向的方块。该更新是没有方向性的，受到该更新的方块会检查四周的方块，响应方块变化。该更新可以被传统的方块更新检测器（BUD，Block Update Detector）检测到。
+
+形状更新，对应代码中的`updateShape()`，又被称为PP更新或状态更新，该更新通常由于方块的形状发生改变用于提示邻接方块形状或状态需要发生变化。该更新是有方向性的，被更新方块只会检查该方向上的变化，当方块形状或状态成功变化使方块变化可以被侦测器检测。
+
+当一些方块被放置或被移除时会进行一些额外的运算，使得到位或消失时得到正确的处理，比如侦测器在移动时发出信号或被移除时信号消失，在文章最前面也提到，活塞会在放置更新时检查自身状态。但是在某些情况下活塞会抑制这一运算，但不会全部抑制，会被抑制的方块有：压力板、铁轨、按钮、拉杆、中继器、比较器、红石火把、红石线、绊线及绊线钩。除了被抑制的方块之外，容器类、b36、活塞头以及侦测器的运算不会被运算，但由于这些方块中只有侦测器可以被活塞移动，所以一般会称为会抑制除侦测器之外的运算。
+
+移动目标位置创建b36的顺序即为移动方块的顺序：
+
+- 移动方向越前越先移动
+- 分支按照“东西南北上下”的顺序移动
+- 越远的分支越先移动
+
+而移除未被覆盖的方块，由于使用了哈希表，更新顺序随机。
+
+#### 普通活塞/粘性活塞只伸出
+
+与[普通活塞/粘性活塞推出方块](#普通活塞/粘性活塞推出方块)相同，移动方块为空。
+
+#### 普通活塞/粘性活塞只收回
+
+创建活塞底座b36方块，发出形状更新与方块更新。
+
+移除活塞头，发出形状更新与方块更新。
+
+```mermaid
+graph LR
+subgraph 只收回
+	创建活塞底座b36方块-->移除活塞头
+end
+classDef default fill:#0000,stroke:#555,stroke-width:2px;
+classDef 形状更新 fill:#acf,stroke:#555,stroke-width:2px;
+classDef 方块更新 fill:#fca,stroke:#555,stroke-width:2px;
+classDef 形状方块更新 fill:#fcf,stroke:#555,stroke-width:2px;
+class 创建活塞底座b36方块,移除活塞头 形状方块更新
+```
+
+#### 普通活塞/粘性活塞推出方块
+
+移除破坏方块位置的方块。
+
+在移动目标位置创建b36方块，抑制移除运算，发出形状更新。
+
+创建活塞头b36方块，抑制移除运算，发出形状更新。
+
+移除未被覆盖的方块，抑制移除运算。然后发出红石粉间接位置更新与形状更新。
+
+破坏方块位置，发出红石粉间接位置更新和方块更新。
+
+移动原位置，发出方块更新。
+
+活塞头位置，发出方块更新。
+
+活塞底座，发出形状更新和方块更新。
+
+```mermaid
+graph LR
+subgraph 推出方块
+	移除破坏方块位置的方块-->在移动目标位置创建b36方块-->创建活塞头b36方块
+	subgraph 移动方块
+		创建活塞头b36方块-->移除未被覆盖的方块-->破坏方块位置-->移动原位置-->活塞头
+	end
+	活塞头-->活塞底座
+end
+classDef default fill:#0000,stroke:#555,stroke-width:2px;
+classDef 形状更新 fill:#acf,stroke:#555,stroke-width:2px;
+classDef 方块更新 fill:#fca,stroke:#555,stroke-width:2px;
+classDef 形状方块更新 fill:#fcf,stroke:#555,stroke-width:2px;
+class 在移动目标位置创建b36方块,创建活塞头b36方块,移除未被覆盖的方块 形状更新
+class 破坏方块位置,移动原位置,活塞头 方块更新
+class 活塞底座 形状方块更新
+```
+
+#### 粘性活塞拉回方块
+
+创建活塞底座b36方块，发出形状更新与方块更新。
+
+移除破坏方块位置的方块。
+
+在移动目标位置创建b36方块，抑制移除运算，发出形状更新。
+
+移除未被覆盖的方块，抑制移除运算。然后发出红石粉间接位置更新与形状更新。
+
+破坏方块位置，发出红石粉间接位置更新和方块更新。
+
+移动原位置，发出方块更新。
+
+```mermaid
+graph LR
+subgraph 拉回方块
+	创建活塞底座b36方块-->移除破坏方块位置的方块
+	subgraph 移动方块
+		移除破坏方块位置的方块-->在移动目标位置创建b36方块-->移除未被覆盖的方块-->破坏方块位置-->移动原位置
+	end
+end
+classDef default fill:#0000,stroke:#555,stroke-width:2px;
+classDef 形状更新 fill:#acf,stroke:#555,stroke-width:2px;
+classDef 方块更新 fill:#fca,stroke:#555,stroke-width:2px;
+classDef 形状方块更新 fill:#fcf,stroke:#555,stroke-width:2px;
+class 在移动目标位置创建b36方块,移除未被覆盖的方块 形状更新
+class 破坏方块位置,移动原位置 方块更新
+class 创建活塞底座b36方块 形状方块更新
+```
+
+#### 粘性活塞拉回方块失败
+
+创建活塞底座b36方块，发出形状更新与方块更新。
+
+没了。
+
+```mermaid
+graph LR
+subgraph 拉回方块失败
+	创建活塞底座b36方块
+end
+classDef default fill:#0000,stroke:#555,stroke-width:2px;
+classDef 形状更新 fill:#acf,stroke:#555,stroke-width:2px;
+classDef 方块更新 fill:#fca,stroke:#555,stroke-width:2px;
+classDef 形状方块更新 fill:#fcf,stroke:#555,stroke-width:2px;
+class 创建活塞底座b36方块 形状方块更新
+```
+
+粘性活塞在拉回方块失败时，活塞头位置不会发出任何更新。可以利用这一不更新特性制作浮空水、浮空告示牌等。
+
+![6](images\6.gif)
+
+#### b36到位
+
+b36会在创建的2gt后的方块实体阶段变为方块，抑制移除运算，发出形状更新与方块更新。
+
+b36的到位顺序与其创建顺序一致。不过有些b36会被活塞的收回事件瞬间到位。
 
 ### b36移动中的方块
 
@@ -820,13 +957,13 @@ void tick() {
 
 #### 瞬间到位
 
-但是在瞬间到位中，b36方块实体的运算会在方块事件中执行，这会强制使该方块变回普通方块，缩减3gt的移动时间。
+但是在瞬间到位中，b36方块实体的运算会在方块事件中执行，这会强制使该方块变回普通方块，缩减移动时间。
 
-将进度直接快进到完成，然后将此方块实体标记为移除。如果该方块为发出移动的活塞的一部分，那么将变成空气，否则将其变成对应的方块。到位后，给出方块更新。
+将进度直接快进到完成，然后将此方块实体标记为移除。如果该方块为发出移动的活塞的一部分，那么将变成空气，否则变成对应的方块。到位后，给出方块更新。
 
 瞬推到位不仅减少了移动时间，还缩水了一些判断，不，没有缩水，瞬推不会清除含水方块中的水。
 
-另外，瞬推到位也不进行实体移动运算，实体移动运算只会在方块实体运算中进行，对于0t瞬推，没有进行过实体移动运算，实体完全不会因b36移动而卡进方块中，而1gt瞬推，进行了1次实体移动运算，会使实体一半卡进方块中，2gt瞬推与正常3gt移动同样进行了2次实体移动运算，所以不会使实体卡进方块里。
+另外，瞬推到位也不进行实体移动运算，实体移动运算只会在方块实体运算中进行，对于0t瞬推，没有进行过实体移动运算，实体完全不会因b36移动而卡进方块中，而1gt瞬推，进行了1次实体移动运算，会使实体一半卡进方块中，2gt瞬推与正常到位同样进行了2次实体移动运算，所以不会使实体卡进方块里。
 
 ```java
 //直接进入到该方块实体的最后一次运算,将b36方块实体变回普通方块
@@ -881,90 +1018,6 @@ VoxelShape getCollisionShape(blockGetter, blockPos) {
 }
 ```
 
-### 方块更新
-
-讲述完所有活塞动作后，我们可以总结以下活塞的激活过程中，究竟给出了哪些更新。在这里，我描述的更新会更详细一些，在这里先简单地表述一下我对方块更新概念的定义：
-
-更新可以分为许多种，指的是当一个方块发生变化使周围发生响应，做出响应更改的过程，当一个方块变化时，它会向四周发出更新信号，称这个方块发出了更新，或者这个方块的毗邻位置受到了更新。更新不一定需要其他方块发出，也可能方块更新了自己；更新也可能不由方块接受，生物AI可以在方块更改后重新计算路径，也响应了这一更新。
-
-方块更新，对应代码中的`neighborChanged()`，又被称为NC更新，该更新通常由某一方块发出，更新其六个方向的方块。该更新是没有方向性的，受到该更新的方块会检查四周的方块，响应方块变化。该更新可以被传统的方块更新检测器（BUD，Block Update Detector）检测到。
-
-形状更新，对应代码中的`updateShape()`，又被称为PP更新或状态更新，该更新通常由于方块的形状发生改变用于提示邻接方块形状或状态需要发生变化。该更新是有方向性的，被更新方块只会检查该方向上的变化，当方块形状或状态成功变化使方块变化可以被侦测器检测。
-
-放置移除更新，`onPlace()`以及`onRemove()`，当一个位置出现新方块或移除旧方块时会出现该更新，让它们在到位或消失时得到正确的处理。比如侦测器移动时发出信号即为该更新导致，在文章最前面也提到，活塞会在放置更新时检查自身状态。
-
-寻路更新，对应代码中的`recomputePath()`，会重新计算生物的寻路，这是一个可以被远距检测的更新，可以被一定范围内的CBUD装置检测。CBUD：[【MC|熟肉】僵尸和CBUD【goohz】](https://www.bilibili.com/video/BV1qx411C7vN)。
-
-#### 移动前
-
-活塞可以在任何阶段受到更新，但它在运算方块事件之前不会产生任何更新。
-
-如果为推出事件，尝试**移动方块**创建b36。
-
-然后活塞底座变为伸出状态，受到放置移除更新、寻路更新、方块更新。
-
-如果是收回事件，活塞底座变成b36，会给出客户端响应的寻路更新，但没有方块更新与形状更新。然后紧接着给出方块更新与形状更新。
-
-如果是粘性活塞的拉回事件，若瞬推收回，b36瞬间到位，给出b36的更新。
-
-粘性活塞正常收回，如果面前方块可以拉动，尝试**移动方块**创建b36。若不能，删除活塞头位置的方块。
-
-若为普通活塞，删除活塞头位置的方块。
-
-#### 移动方块
-
-将收回的活塞头设为空气，给出客户端响应的寻路更新，不给出方块更新与形状更新。
-
-不能移动则没有之后的更新。 
-
-破坏方块，给出寻路更新，不给出方块更新与形状更新。
-
-移动方块创建b36，移动方块的目标位置，给出形状更新和放置移除更新，但该形状更新成功时抑制方块变化。
-
-若为推出，将活塞头变成b36，给出放置移除更新。
-
-未被移动覆盖的原位置，给出放置移除更新与寻路更新，不给出方块更新与形状更新。
-
-未被移动覆盖的原位置，给出红石粉间接位置更新与形状更新。
-
-破坏方块的原位置，给出红石粉间接位置更新与方块更新。
-
-移动方块的原位置，给出相邻位置方块更新。
-
-如果为推出，活塞头给出相邻位置方块更新。
-
-移动方块的顺序为：
-
-- 移动方向越前越先移动
-- 分支按照“东西南北上下”的顺序移动
-- 越远的分支越先移动
-
-#### 普通活塞/粘性活塞推出
-
-移动方块目标位置，受到形状更新和放置移除更新，形状更新结果受到抑制。
-
-活塞头位置受到放置移除更新。
-
-未被移动覆盖的原位置，受到放置移除更新与寻路更新。然后给出红石粉间接位置更新与形状更新。
-
-破坏方块的位置，受到红石粉间接位置更新和形状更新。
-
-移动方块的原位置的毗邻，受到方块更新。
-
-活塞头位置的毗邻，受到方块更新。
-
-活塞底座的毗邻，受到方块更新。
-
-
-
-#### b36到位
-
-b36的创建顺序为：推出方块、收回的活塞底座、收回方块。
-
-b36的到位更新顺序与创建顺序一致，除非瞬间到位。
-
-【WIP】
-
 ### 延迟理论
 
 由于活塞的伸出是在方块事件运算时执行的，而更新活塞导致的活塞自检在任意游戏阶段都有可能发生，方块事件这种延后执行的性质可能会使得延迟到下一游戏刻内执行，产生额外的延迟。
@@ -973,7 +1026,10 @@ b36的到位更新顺序与创建顺序一致，除非瞬间到位。
 
 ```mermaid
 graph LR
-	计划刻 --> 方块事件 --> 实体 --> 方块实体 --> 玩家操作
+subgraph 游戏刻
+	计划刻NTE --> 方块事件BE --> 实体EU --> 方块实体TE --> 玩家操作NU
+end
+classDef default fill:#0000,stroke:#555,stroke-width:2px;
 ```
 
 在一个游戏刻内，运算方块事件只排在了计划刻之后。在计划刻及方块事件中更新活塞添加的方块事件会在同一游戏刻内运算，而通过实体、方块实体及玩家操作更新活塞则会延后至下一游戏刻的方块事件阶段运行。这也就是所谓的“活塞不同步BUG”，典型特征即为拉杆直接激活活塞会比中继器激活活塞多一个游戏刻延迟。
@@ -988,19 +1044,119 @@ graph LR
 
 ### 活塞与物品复制
 
-一些物品可以通过使用活塞推拉特定的方块结构来完成复制，推拉结构中的方块没有掉落但是却出现了掉落物。通常，可以使用活塞来进行复制的物品有铁轨、地毯以及点燃的TNT。
+一些物品可以通过使用活塞推拉特定的方块结构来完成复制。通常，可以使用活塞来进行复制的物品有铁轨、地毯以及点燃的TNT。这些物品复制都利用了同一活塞原理，即移动方块是一个个移动的，方块可以在创建列表后被破坏掉落，而在创建列表后重新以b36的形式被放置。
 
-这些物品复制都利用了同一活塞原理，即移动方块是一个个移动的，方块可以在创建列表后被破坏掉落，而在创建列表后重新以b36的形式被放置。
+根据活塞移动方块的更新方式，在移动方块创建b36的过程中不会发出任何方块更新，而在移动方块之后才会依次更新移动列表，无法直接做到在中途更新方块。但是，这其中的形状更新与放置移除运算可以发生方块更新
 
-根据活塞移动方块的更新方式，在移动方块创建b36的过程并不会给出任何方块更新与形状更新，而在移动方块之后才会依次更新移动列表，无法直接达成这样的目的，但是，这其中有可利用的部分，移动方块的过程中会实时给出放置破坏更新。利用这些会响应放置破坏更新的方块进而给出使铁轨、地毯掉落或BUD态TNT激活的更新。能够给出放置移除更新的方块有很多，最常利用于物品复制的方块为失活的珊瑚扇，它可被活塞推动，又是会掉落的附着方块。
+#### 亮起侦测器的移除运算
 
-未失活的珊瑚扇属于水生植物质方块，不可被活塞推动，而失活的珊瑚扇属于石质方块，可以被活塞推动。
+亮起的侦测器移除时会停止信号输出，并在后方输出位置发出方块更新。
 
-#### 地毯复制
+```java
+void onRemove(blockState, level, blockPos, blockState2, bl) {
+    //方块没有发生改变则返回
+    if (blockState.is(blockState2.getBlock())) {
+        return;
+    }
+    //非客户端，侦测器亮起，正处于计划刻
+    if (!level.isClientSide && blockState.getValue(POWERED).booleanValue() && level.getBlockTicks().hasScheduledTick(blockPos, this)) {
+        //向后方输出位置发出方块更新
+        updateNeighborsInFront(level, blockPos, (BlockState)blockState.setValue(POWERED, false));
+    }
+}
+```
 
-#### 铁轨复制
+![13](images/13.gif)
 
-#### TNT复制
+这是[RS_DKH_2157](https://space.bilibili.com/123747027)设计的无粘液球无珊瑚的TNT复制。对于底部的两个活塞：左侧活塞先伸出激活侦测器，侦测器计划在2gt后亮起，而3gt后右侧活塞执行伸出事件。
+
+在右侧活塞的伸出事件中：
+
+- 移动方块列表：侦测器、玻璃、TNT
+  - 移动侦测器，在目标位置创建b36方块
+  - 移动玻璃，在目标位置创建b36方块，覆盖了亮起的侦测器，侦测器执行移除运算，发出方块更新，TNT被点燃
+  - 移动TNT，在目标位置创建b36方块
+- ……
+
+于是，完成了一次TNT复制。
+
+![16](images/16.gif)
+
+这是一个无珊瑚扇铁轨复制。粘性活塞收回，2gt后的TE阶段侦测器到位，计划2gt后发出信号，粘性活塞伸出，2gt后的TE阶段活塞头到位，发出方块更新，1gt后粘性活塞收回，共计7gt周期。侦测器会在亮起时被活塞推出，发出方块更新。
+
+活塞的伸出事件中：
+
+- 移动方块列表
+  - 移动左侧侦测器，在目标位置创建b36方块
+  - 移动粘液块，在目标位置创建b36方块，覆盖了亮起的侦测器，侦测器执行移除运算，发出方块更新，铁轨发现下方为b36方块，掉落
+  - ……
+  - 移动铁轨，在目标位置创建b36方块
+  - 移动其余方块
+- ……
+
+如果将侦测器和铁轨放在侧面，亮起的侦测器不会被其他b36方块覆盖，它和铁轨移除顺序将变成哈希相关，能否复制除铁轨与位置和方向有关。
+
+#### 失活的珊瑚/珊瑚扇的掉落
+
+活塞在移动方块之前的破坏方块操作不会发出方块更新，而是在完成移动方块操作之后才对这个位置发出方块更新。而通过形状更新引发的方块自我掉落则会发出方块更新。
+
+如图，玻璃前方的火把，处于破坏方块列表中，掉落时没有破坏动画；附着在玻璃侧面的火把，移动方块时产生的形状更新引发的自我掉落有破坏动画。
+
+![14](images/14.gif)
+
+但附着性方块通常会掉落且无法被移动，所以难以实际应用于复制。失活的珊瑚/珊瑚扇正好是一个可以被活塞移动的附着性方块，将其添加进移动列表，在某种意义上珊瑚/珊瑚扇自身也完成了一次复制，但珊瑚/珊瑚扇并没有掉落物，这也是1.17早期快照版本中紫水晶复制的原因（目前紫水晶会被推动破坏）。
+
+因此，利用珊瑚/珊瑚扇掉落产生方块更新，可以很方便地用于物品复制。
+
+![15](images/15.gif)
+
+这是应用很广的两个地毯复制，其中左侧为收回复制，而右侧为推出复制。
+
+先看左边的地毯复制，在粘性活塞的收回事件中：
+
+- 移动方块列表
+  - 移动最下方的粘液块，在目标位置创建b36方块
+  - 移动失活的珊瑚扇，在目标位置创建b36方块，发出形状更新，失活的珊瑚扇掉落，发出形状更新和方块更新
+    - 失活的珊瑚扇上方未移动的地毯连锁掉落
+  - 移动其余粘液块及地毯
+- ……
+
+右侧的地毯复制也是类似，在粘性活塞的推出事件中：
+
+- 移动方块列表
+  - 移动玻璃，在目标位置创建b36方块
+  - 移动最下方的粘液块，在目标位置创建粘液块，发出形状更新，失活的珊瑚扇掉落，发出形状更新和方块更新
+    - 失活的珊瑚扇上方的地毯连锁掉落
+  - 移动珊瑚扇，在目标位置创建b36方块
+  - 移动其余粘液块及地毯
+- ……
+
+用失活的珊瑚/珊瑚扇同样可以用来复制TNT和铁轨。
+
+![17](images/17.gif)
+
+这是一个经典的防雪双向TNT复制，推拉均可复制，我们分析推出的时候。
+
+在活塞的伸出事件中：
+
+- 移动方块列表
+  - 移动TNT及失活的珊瑚扇背后的粘液块
+  - 移动玻璃，在目标位置创建b36方块，发出形状更新，失活的珊瑚扇掉落，发出形状更新与方块更新，TNT被点燃
+  - 移动TNT、失活的珊瑚扇等其余方块
+- ……
+
+![18](images/18.gif)
+
+在这个使用了失活的珊瑚扇的铁轨复制中。活塞的收回事件中：
+
+- 移动方块列表
+  - 移动最下面一行玻璃及粘液块，在目标位置创建b36方块
+  - 移动粘性活塞面前的粘液块，在目标位置创建b36方块
+  - 移动失活的珊瑚扇，在目标位置创建b36方块，发出形状更新，失活的珊瑚扇掉落，发出形状更新和方块更新
+    - 铁轨连锁掉落
+- ……
+
+铁轨虽然也是附着类方块，但它只会受到方块更新后才会掉落，不会响应形状更新，而且无法附着于b36方块上。
 
 ### 信息不一致的方块事件
 

@@ -82,7 +82,7 @@ boolean addBlockLine(blockPos, direction) {
     }
     n = 1;
     do {
-        //如果该方块正向n格存在与方块移动列表中 n4位置
+        //如果该方块正向n格已存在于方块移动列表中 n4位置
         if ((n4 = toPush.indexOf(blockPos3 = blockPos.relative(pushDirection, n))) > -1) {
             //n3、n4重排列表
             reorderListAtCollision(n3, n4);
@@ -118,6 +118,8 @@ boolean addBlockLine(blockPos, direction) {
 
 //重排列表
 void reorderListAtCollision(n, n2) {
+    //[0, n2], [size-n, n2] [n2, size-n]
+    //交换后n个的位置与中间部分
     arrayList.addAll(toPush.subList(0, n2));
     arrayList2.addAll(toPush.subList(toPush.size() - n, toPush.size()));
     arrayList3.addAll(toPush.subList(n2, toPush.size() - n));

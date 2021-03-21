@@ -11,9 +11,9 @@ void finalTick() {
         if (level.getBlockState(worldPosition).is(Blocks.MOVING_PISTON)) {
             //是否为产生移动的活塞？是则变为空气，否则在形状更新后到位
             blockState = isSourcePiston ? Blocks.AIR.defaultBlockState() : Block.updateFromNeighbourShapes(movedState, level, worldPosition);
-            //设置方块
+            //设置方块 形状更新 寻路更新 方块更新
             level.setBlock(worldPosition, blockState, 3);
-            //发出方块更新
+            //自身受到方块更新
             level.neighborChanged(worldPosition, blockState.getBlock(), worldPosition);
         }
     }
