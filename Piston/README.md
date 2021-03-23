@@ -78,11 +78,11 @@ void onPlace(blockState, level, blockPos, blockState2, bl) {
 这是一张红石粉激活更新的示意图，它激活了红色混凝土方块并会更新其毗邻（红色玻璃）及二阶毗邻（蓝色玻璃）的位置，上方活塞位于更新范围内且自检发现自己被激活，所以伸出。而下方活塞不在更新范围内，即使满足了上位激活也由于缺少更新而没有伸出。
 
 ```java
-//检查是否被激活
+//检查是否被充能
 boolean getNeighborSignal(level, blockPos, direction) {
-    //朝各个方向检查激活情况
+    //朝各个方向检查充能情况
     for (direction2 : Direction.values()) {
-        //不检查推出的方向
+        //不检查伸出的方向
         if (direction2 == direction || !level.hasSignal(blockPos.relative(direction2), direction2)) continue;
         return true;
     }
@@ -92,7 +92,7 @@ boolean getNeighborSignal(level, blockPos, direction) {
     }
     //检查活塞上方的位置(引发qc特性的上位激活)
     blockPos2 = blockPos.above();
-    //朝各个方向检查激活情况
+    //朝各个方向检查充能情况
     for (direction3 : Direction.values()) {
         //不检查下方
         if (direction3 == Direction.DOWN || !level.hasSignal(blockPos2.relative(direction3), direction3)) continue;
@@ -120,7 +120,7 @@ boolean getNeighborSignal(level, blockPos, direction) {
 void checkIfExtend(level, blockPos, blockState) {
     //活塞的朝向
     direction = blockState.getValue(FACING);
-    //检查激活情况
+    //检查充能情况
     bl = getNeighborSignal(level, blockPos, direction);
     //如果活塞会被激活而没有伸出
     if (bl && !blockState.getValue(EXTENDED).booleanValue()) {
@@ -136,7 +136,7 @@ void checkIfExtend(level, blockPos, blockState) {
         blockState2 = level.getBlockState(blockPos2);
         n = 1;
         //如果这个方块是朝向与当前活塞同向推出的b36方块
-        //且这次更新不为该b36方块到位发出的更新
+        //且这次更新不为b36方块的到位更新
         if (blockState2.is(Blocks.MOVING_PISTON) && blockState2.getValue(FACING) == direction && (blockEntity = level.getBlockEntity(blockPos2)) instanceof PistonMovingBlockEntity && (pistonMovingBlockEntity = (PistonMovingBlockEntity)blockEntity).isExtending() && (pistonMovingBlockEntity.getProgress(0.0f) < 0.5f || level.getGameTime() == pistonMovingBlockEntity.getLastTicked() || ((ServerLevel)level).isHandlingTick())) {
             //设置n
             n = 2;
@@ -172,9 +172,9 @@ void checkIfExtend(level, blockPos, blockState) {
 
 ```java
 //检查方块是否能够被活塞移动
-//direction:推动方向
-//direction2:活塞方向
-//bl:
+//direction:移动方向
+//direction2:作用方向
+//bl:包含破坏
 boolean isPushable(blockState, level, blockPos, direction, bl, direction2) {
     //如果该位置在世界之外,不能推动
     if (blockPos.getY() < 0 || blockPos.getY() > level.getMaxBuildHeight() - 1 || !level.getWorldBorder().isWithinBounds(blockPos)) {
@@ -196,13 +196,13 @@ boolean isPushable(blockState, level, blockPos, direction, bl, direction2) {
     if (direction == Direction.UP && blockPos.getY() == level.getMaxBuildHeight() - 1) {
         return false;
     }
-    //如果该方块是伸出的活塞,不能伸出
+    //如果该方块是伸出的活塞底座,不能伸出
     if (blockState.is(Blocks.PISTON) || blockState.is(Blocks.STICKY_PISTON)) {
         if (blockState.getValue(EXTENDED).booleanValue()) {
             return false;
         }
-    } else {//该方块不是活塞
-        //如果该方块无法挖掘,不能伸出
+    } else {//该方块不是活塞底座
+        //如果该方块无法挖掘,不能移动
         if (blockState.getDestroySpeed(level, blockPos) == -1.0f) {
             return false;
         }
@@ -281,9 +281,7 @@ boolean resolve() {
 
 确定了拉动部分后，将它们添加到移动方块列表中。添加顺序为移动方向的反向，最后方的方块先添加进列表。
 
-再分析推动前方方块的部分。从移动位点开始向移动方向寻找会被推动方块。当该方块已经位于移动方块列表中时，说明这个该直线结构已经结束，再往前是另一直线方块结构，而在推动时可粘会与该结构发生碰撞，所以需要重新排列移动方块列表的顺序。对于已经走完的这些方块，如果是可粘方块，则进入分支方块结构检查，寻找侧面粘动的方块。如果侧面粘动使拉动失败，逐级返回失败结果。
-
-
+再分析推动前方方块的部分。从移动位点开始向移动方向寻找会被推动方块。当该方块已经位于移动方块列表中时，说明这个该直线结构已经结束，再往前是另一直线方块结构，而在推动时可能会与该结构发生碰撞，所以需要重新排列移动方块列表的顺序。对于已经走完的这些方块，如果是可粘方块，则进入分支方块结构检查，寻找侧面粘动的方块。如果侧面粘动使拉动失败，逐级返回失败结果。
 
 如果正向推动的前方为空气，那也就意味着该直线结构的结束。
 
@@ -375,13 +373,13 @@ boolean addBlockLine(blockPos, direction) {
 
 ```java
 //添加分支方块
-private boolean addBranchingBlocks(blockPos) {
+boolean addBranchingBlocks(blockPos) {
     blockState = level.getBlockState(blockPos);
     //对于每个方向
     for (direction : Direction.values()) {
         //同轴移动或该方块与移动方块方块不互粘或能添加方块列，继续循环
-        if (direction.getAxis() == pushDirection.getAxis() || !PistonStructureResolver.canStickToEachOther((blockState2 = level.getBlockState(blockPos2 = blockPos.relative(direction))).getBlock(), blockState.getBlock()) || addBlockLine(blockPos2, direction)) continue;
-        return false;
+        if (direction.getAxis() == pushDirection.getAxis() || !PistonStructureResolver.canStickToEachOther((blockState2 = level.getBlockState(blockPos2 = blockPos.relative(direction))).getBlock(), blockState.getBlock())) continue;
+        if(!addBlockLine(blockPos2, direction)) return false;
     }
     return true;
 }
@@ -389,7 +387,7 @@ private boolean addBranchingBlocks(blockPos) {
 
 #### 实例说明
 
-![reorder](E:\Minecraft\Minecraft-Note\Piston\images\reorder.png)
+![reorder](images/reorder.png)
 
 在这个示例中，根据添加分支的顺序，活塞前方的粘液块会先添加下方的分支，玻璃会先由蜜块这一分支添加至移动列表，然后分析到以玻璃后方的粘液块为的移动位点的直线结构时，发现该玻璃已经被添加至移动列表中，这时，会将该粘液块所拉动的方块一并添加至移动列表中的玻璃之后，所以在这个结构中，玻璃所在方块列由前往后最先移动。
 
@@ -397,7 +395,7 @@ private boolean addBranchingBlocks(blockPos) {
 
 根据对移动结构的分析顺序，我们可以总结出添加方块至方块列表中有以下顺序规则：
 
-- 直线方块结构沿移动方向由后至前
+- 直线方块结构沿移动方向由后至前，多个相接的直线方块结构合并为一起
 - 添加分支方向顺序为：下上北南西东
 - 分支为递归添加，越近的分支越早添加至方块列表
 
@@ -405,9 +403,9 @@ private boolean addBranchingBlocks(blockPos) {
 
 在移动方块的时候，游戏会根据该方块列表**逆序**移动方块，所以实际的方块移动顺序与以上顺序是刚好相反的，所以移动方块顺序规则为：
 
-- 移动方向越前越先移动
-- 分支按照“东西南北上下”的顺序移动
-- 越远的分支越先移动
+- 粘动分支深度越深越先移动
+- 同向直线方块由前至后连续移动
+- 分支按“东西南北上下”的顺序移动
 
 对于上述分析，也可以参考这一专栏文章，作者虽然说没有读过源码，全凭经验与实践得出的分析方法，但与实际游戏实现极其接近：[Minecraft 绿萌被活塞移动时的处理顺序](https://www.bilibili.com/read/cv6669136)
 
@@ -468,18 +466,18 @@ boolean triggerEvent(blockState, level, blockPos, n, n2) {
         //如果没有激活,而方块事件为伸出,方块事件执行失败
         if (!bl && n == 0) return false;
     }
-    //伸出事件及瞬推收回事件
+    //伸出事件
     if (n == 0) {
         //移动前方方块，若无法移动，则方块事件执行失败
         if (!moveBlocks(level, blockPos, direction, true)) return false;
         //将活塞设置为伸出状态
-        //flags:0b01000011 抑制移除运算 寻路更新 方块更新
+        //flags:0b01000011 放置移除更新 寻路更新 方块更新
         level.setBlock(blockPos, blockState.setValue(EXTENDED, true), 67);
         //播放活塞伸出的声音
         level.playSound(null, blockPos, SoundEvents.PISTON_EXTEND, SoundSource.BLOCKS, 0.5f, level.random.nextFloat() * 0.25f + 0.6f);
         //方块事件执行成功
         return true;
-    } else {//收回事件
+    } else {//收回事件及瞬推收回事件
         //其他方块事件(?),返回
         if (n != 1 && n != 2) return true;
         //活塞头位置的方块实体
@@ -537,7 +535,7 @@ boolean triggerEvent(blockState, level, blockPos, n, n2) {
 
 活塞伸出的时候，以及粘性活塞收回且伸出前一格方块可拉时会尝试移动方块。
 
-如果是打算收回方块，那么会先将当前活塞头删除来为拉动方块腾出空间。
+如果是打算收回方块，会先将当前活塞头删除，避免活塞头阻挡移动结构分析。
 
 在正式移动之前，会再次分析移动结构，如果发现此时的移动结构无法被移动，就会结束这一步，不会移动方块。
 
@@ -550,8 +548,7 @@ boolean triggerEvent(blockState, level, blockPos, n, n2) {
 最后才统一发出更新，先是未被覆盖的位置发出形状更新及红石粉相关的形状更新。然后所有方块被破坏的位置发出形状更新，所有移动的原位置发出方块更新。如果是伸出，活塞头发出方块更新。
 
 ```java
-//bl = true, 伸出
-//bl = false, 收回
+//bl = 是否为伸出
 boolean moveBlocks(level, blockPos, direction, bl) {
     //活塞头的位置
     blockPos2 = blockPos.relative(direction);
@@ -607,7 +604,7 @@ boolean moveBlocks(level, blockPos, direction, bl) {
         //删除哈希表中方块
         hashMap.remove(object3);
         //将该方块设置成b36
-        //flags: 0b01101000 抑制移除运算
+        //flags: 0b01101000 放置移除更新
         level.setBlock((BlockPos)object3, Blocks.MOVING_PISTON.defaultBlockState().setValue(FACING, direction), 68);
         //将该方块设置成b36方块实体
         level.setBlockEntity((BlockPos)object3, MovingPistonBlock.newMovingBlockEntity(arrayList.get(n), direction, bl, false));
@@ -623,7 +620,7 @@ boolean moveBlocks(level, blockPos, direction, bl) {
         //从哈希表中删除
         hashMap.remove(blockPos2);
         //将活塞头的位置设置成b36
-        //flags: 0b01101000 抑制移除运算
+        //flags: 0b01101000 放置移除更新
         level.setBlock(blockPos2, blockState, 68);
         //将活塞头的位置设置成b36方块实体
         level.setBlockEntity(blockPos2, MovingPistonBlock.newMovingBlockEntity(object3, direction, true, true));
@@ -632,7 +629,7 @@ boolean moveBlocks(level, blockPos, direction, bl) {
     //对于哈希表中剩下的方块位置
     for (blockPos3 : hashMap.keySet()) {
         //设置成空气
-        //flags: 0b01010010 抑制移除运算 无形状更新 寻路更新
+        //flags: 0b01010010 放置移除更新 无形状更新 寻路更新
         level.setBlock(blockPos3, blockState, 82);
     }
     //对于哈希表中的所有方块
@@ -745,9 +742,9 @@ boolean moveBlocks(level, blockPos, direction, bl) {
 
 移动目标位置创建b36的顺序即为移动方块的顺序：
 
-- 移动方向越前越先移动
-- 分支按照“东西南北上下”的顺序移动
-- 越远的分支越先移动
+- 粘动分支深度越深越先移动
+- 同向直线方块由前至后连续移动
+- 分支按“东西南北上下”的顺序移动
 
 而移除未被覆盖的方块，由于使用了哈希表，更新顺序随机。
 
@@ -888,7 +885,7 @@ b36的到位顺序与其创建顺序一致。不过有些b36会被活塞的收�
 
 3. TE: 发现进度已达到1，变回方块
 
-移动从第1gt的BE开始，到第3gt的TE结束。如果需要被再次移动，那么需要等待到第4gt的BE。通常认为活塞推动需要3gt的时间。而对于瞬推来说，将b36变回普通方块是在方块事件中完成的，在同游戏刻内还能被继续移动。0t瞬推的含义是在0t后能被再次移动，1gt瞬推在1gt后能继续移动，而2gt瞬推为2gt。
+移动从第1gt的BE开始，到第3gt的TE结束。如果需要被再次移动，那么需要等待到第4gt的BE。通常认为活塞推动需要3gt的时间。而对于瞬推来说，将b36变回普通方块是在方块事件中完成的，在同游戏刻内还能被继续移动。一般来说，0t瞬推的含义是在0gt后能被再次移动，1t瞬推在1gt后能继续移动，而2t瞬推为2gt。
 
 b36在移动的过程中，还会移动与它碰撞或者被蜜块粘住的实体。有关实体的运算，在此处不加以赘述，有一个关于旧版本活塞与实体交互的视频可以了解一下：[【熟肉|填坑】活塞发展摘要（320m/s传输装置解释）【Panda4994】](https://www.bilibili.com/video/BV1tx41117TX)
 
@@ -934,7 +931,7 @@ void tick() {
         return;
     }//推动未完成
     //推动进度+0.5
-    float f = progress + 0.5f;
+    f = progress + 0.5f;
     //移动碰撞影响的实体
     moveCollidedEntities(f);
     //移动粘住的实体
@@ -958,7 +955,7 @@ void tick() {
 另外，瞬推到位也不进行实体移动运算，实体移动运算只会在方块实体运算中进行，对于0t瞬推，没有进行过实体移动运算，实体完全不会因b36移动而卡进方块中，而1gt瞬推，进行了1次实体移动运算，会使实体一半卡进方块中，2gt瞬推与正常到位同样进行了2次实体移动运算，所以不会使实体卡进方块里。
 
 ```java
-//直接进入到该方块实体的最后一次运算,将b36方块实体变回普通方块
+//瞬间到位，将b36方块实体变回普通方块
 void finalTick() {
     //存在世界且进度未满或客户端运算
     if (level != null && (progressO < 1.0f || level.isClientSide)) {
@@ -969,11 +966,11 @@ void finalTick() {
         setRemoved();
         //如果此处为b36方块
         if (level.getBlockState(worldPosition).is(Blocks.MOVING_PISTON)) {
-            //为活塞b36则为空气,否则给出形状更新
+            //是否为产生移动的活塞？是则变为空气，否则在形状更新后到位
             blockState = isSourcePiston ? Blocks.AIR.defaultBlockState() : Block.updateFromNeighbourShapes(movedState, level, worldPosition);
-            //设置方块
+            //设置方块 形状更新 寻路更新 方块更新
             level.setBlock(worldPosition, blockState, 3);
-            //受到方块更新
+            //自身受到方块更新
             level.neighborChanged(worldPosition, blockState.getBlock(), worldPosition);
         }
     }
@@ -1002,9 +999,9 @@ VoxelShape getCollisionShape(blockGetter, blockPos) {
             : movedState;
     //根据进度移动碰撞体积
     f = getExtendedProgress(progress);
-    d = direction.getStepX() * f;
-    d2 = direction.getStepY() * f;
-    d3 = direction.getStepZ() * f;
+    d = (float) direction.getStepX() * f;
+    d2 = (float) direction.getStepY() * f;
+    d3 = (float) direction.getStepZ() * f;
     //结合上述两个碰撞体积
     return Shapes.or(voxelShape, blockState.getCollisionShape(blockGetter, blockPos).move(d, d2, d3));
 }

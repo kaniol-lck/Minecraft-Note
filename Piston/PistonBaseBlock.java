@@ -77,9 +77,9 @@ boolean getNeighborSignal(level, blockPos, direction) {
 }
 
 //检查方块是否能够被活塞移动
-//direction:推动方向
-//direction2:活塞方向
-//bl:
+//direction:移动方向
+//direction2:作用方向
+//bl:包含破坏
 boolean isPushable(blockState, level, blockPos, direction, bl, direction2) {
     //如果该位置在世界之外,不能推动
     if (blockPos.getY() < 0 || blockPos.getY() > level.getMaxBuildHeight() - 1 || !level.getWorldBorder().isWithinBounds(blockPos)) {
@@ -101,13 +101,13 @@ boolean isPushable(blockState, level, blockPos, direction, bl, direction2) {
     if (direction == Direction.UP && blockPos.getY() == level.getMaxBuildHeight() - 1) {
         return false;
     }
-    //如果该方块是伸出的活塞,不能伸出
+    //如果该方块是伸出的活塞底座,不能伸出
     if (blockState.is(Blocks.PISTON) || blockState.is(Blocks.STICKY_PISTON)) {
         if (blockState.getValue(EXTENDED).booleanValue()) {
             return false;
         }
-    } else {//该方块不是活塞
-        //如果该方块无法挖掘,不能伸出
+    } else {//该方块不是活塞底座
+        //如果该方块无法挖掘,不能移动
         if (blockState.getDestroySpeed(level, blockPos) == -1.0f) {
             return false;
         }

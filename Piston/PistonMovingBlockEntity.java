@@ -60,7 +60,7 @@ void tick() {
         return;
     }//推动未完成
     //推动进度+0.5
-    float f = progress + 0.5f;
+    f = progress + 0.5f;
     //移动碰撞影响的实体
     moveCollidedEntities(f);
     //移动粘住的实体

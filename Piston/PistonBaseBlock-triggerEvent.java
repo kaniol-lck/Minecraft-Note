@@ -83,8 +83,7 @@ boolean triggerEvent(blockState, level, blockPos, n, n2) {
     return true;
 }
 
-//bl = true, 伸出
-//bl = false, 收回
+//bl = 是否为伸出
 boolean moveBlocks(level, blockPos, direction, bl) {
     //活塞头的位置
     blockPos2 = blockPos.relative(direction);
