@@ -42,9 +42,8 @@ void checkIfExtend(level, blockPos, blockState) {
         blockPos2 = blockPos.relative(direction, 2);
         blockState2 = level.getBlockState(blockPos2);
         n = 1;
-        //如果这个方块是b36且朝向与当前活塞方向相同且为伸出的情况且伸出的进度不到一半
-        //或在同一tick内
-        //或正在处理该tick
+        //如果这个方块是朝向与当前活塞同向推出的b36方块
+        //且这次更新不为b36方块的到位更新
         if (blockState2.is(Blocks.MOVING_PISTON) && blockState2.getValue(FACING) == direction && (blockEntity = level.getBlockEntity(blockPos2)) instanceof PistonMovingBlockEntity && (pistonMovingBlockEntity = (PistonMovingBlockEntity)blockEntity).isExtending() && (pistonMovingBlockEntity.getProgress(0.0f) < 0.5f || level.getGameTime() == pistonMovingBlockEntity.getLastTicked() || ((ServerLevel)level).isHandlingTick())) {
             //设置n
             n = 2;

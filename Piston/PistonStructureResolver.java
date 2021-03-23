@@ -84,12 +84,11 @@ boolean addBlockLine(blockPos, direction) {
     do {
         //如果该方块正向n格已存在于方块移动列表中 n4位置
         if ((n4 = toPush.indexOf(blockPos3 = blockPos.relative(pushDirection, n))) > -1) {
-            //n3、n4重排列表
+            //将添加拉动的方块插入到这个方块之后
             reorderListAtCollision(n3, n4);
-            //对于所有方块
+            //添加这些拉动方块粘动的分支
             for (int i = 0; i <= n4 + n3; ++i) {
                 blockPos4 = toPush.get(i);
-                //如果不是可粘方块或成功添加分支方块则继续
                 if (!PistonStructureResolver.isSticky(level.getBlockState(blockPos4).getBlock()) || addBranchingBlocks(blockPos4)) continue;
                 return false;
             }
