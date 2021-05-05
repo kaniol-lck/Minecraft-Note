@@ -24,7 +24,7 @@ boolean triggerEvent(blockState, level, blockPos, n, n2) {
         //移动前方方块，若无法移动，则方块事件执行失败
         if (!moveBlocks(level, blockPos, direction, true)) return false;
         //将活塞设置为伸出状态
-        //flags:0b01000011 放置移除更新 寻路更新 方块更新
+        //flags:0b01000011 抑制移除运算 寻路更新 方块更新
         level.setBlock(blockPos, blockState.setValue(EXTENDED, true), 67);
         //播放活塞伸出的声音
         level.playSound(null, blockPos, SoundEvents.PISTON_EXTEND, SoundSource.BLOCKS, 0.5f, level.random.nextFloat() * 0.25f + 0.6f);
@@ -139,7 +139,7 @@ boolean moveBlocks(level, blockPos, direction, bl) {
         //删除哈希表中方块
         hashMap.remove(object3);
         //将该方块设置成b36
-        //flags: 0b01101000 放置移除更新
+        //flags: 0b01101000 抑制移除运算
         level.setBlock((BlockPos)object3, Blocks.MOVING_PISTON.defaultBlockState().setValue(FACING, direction), 68);
         //将该方块设置成b36方块实体
         level.setBlockEntity((BlockPos)object3, MovingPistonBlock.newMovingBlockEntity(arrayList.get(n), direction, bl, false));
@@ -155,7 +155,7 @@ boolean moveBlocks(level, blockPos, direction, bl) {
         //从哈希表中删除
         hashMap.remove(blockPos2);
         //将活塞头的位置设置成b36
-        //flags: 0b01101000 放置移除更新
+        //flags: 0b01101000 抑制移除运算
         level.setBlock(blockPos2, blockState, 68);
         //将活塞头的位置设置成b36方块实体
         level.setBlockEntity(blockPos2, MovingPistonBlock.newMovingBlockEntity(object3, direction, true, true));
@@ -164,7 +164,7 @@ boolean moveBlocks(level, blockPos, direction, bl) {
     //对于哈希表中剩下的方块位置
     for (blockPos3 : hashMap.keySet()) {
         //设置成空气
-        //flags: 0b01010010 放置移除更新 无形状更新 寻路更新
+        //flags: 0b01010010 抑制移除运算 无形状更新 寻路更新
         level.setBlock(blockPos3, blockState, 82);
     }
     //对于哈希表中的所有方块

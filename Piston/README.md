@@ -78,9 +78,9 @@ void onPlace(blockState, level, blockPos, blockState2, bl) {
 这是一张红石粉激活更新的示意图，它激活了红色混凝土方块并会更新其毗邻（红色玻璃）及二阶毗邻（蓝色玻璃）的位置，上方活塞位于更新范围内且自检发现自己被激活，所以伸出。而下方活塞不在更新范围内，即使满足了上位激活也由于缺少更新而没有伸出。
 
 ```java
-//检查是否被充能
+//检查是否被激活
 boolean getNeighborSignal(level, blockPos, direction) {
-    //朝各个方向检查充能情况
+    //朝各个方向检查激活情况
     for (direction2 : Direction.values()) {
         //不检查伸出的方向
         if (direction2 == direction || !level.hasSignal(blockPos.relative(direction2), direction2)) continue;
@@ -92,7 +92,7 @@ boolean getNeighborSignal(level, blockPos, direction) {
     }
     //检查活塞上方的位置(引发qc特性的上位激活)
     blockPos2 = blockPos.above();
-    //朝各个方向检查充能情况
+    //朝各个方向检激活情况
     for (direction3 : Direction.values()) {
         //不检查下方
         if (direction3 == Direction.DOWN || !level.hasSignal(blockPos2.relative(direction3), direction3)) continue;
@@ -120,7 +120,7 @@ boolean getNeighborSignal(level, blockPos, direction) {
 void checkIfExtend(level, blockPos, blockState) {
     //活塞的朝向
     direction = blockState.getValue(FACING);
-    //检查充能情况
+    //检查情况
     bl = getNeighborSignal(level, blockPos, direction);
     //如果活塞会被激活而没有伸出
     if (bl && !blockState.getValue(EXTENDED).booleanValue()) {
@@ -136,8 +136,16 @@ void checkIfExtend(level, blockPos, blockState) {
         blockState2 = level.getBlockState(blockPos2);
         n = 1;
         //如果这个方块是朝向与当前活塞同向推出的b36方块
-        //且这次更新不为b36方块的到位更新
-        if (blockState2.is(Blocks.MOVING_PISTON) && blockState2.getValue(FACING) == direction && (blockEntity = level.getBlockEntity(blockPos2)) instanceof PistonMovingBlockEntity && (pistonMovingBlockEntity = (PistonMovingBlockEntity)blockEntity).isExtending() && (pistonMovingBlockEntity.getProgress(0.0f) < 0.5f || level.getGameTime() == pistonMovingBlockEntity.getLastTicked() || ((ServerLevel)level).isHandlingTick())) {
+        //且当前位于这次更新不为2gt后的EU至TE阶段（包含b36方块的到位更新）
+        if (blockState2.is(Blocks.MOVING_PISTON) && 
+            blockState2.getValue(FACING) == direction && 
+            (blockEntity = level.getBlockEntity(blockPos2)) instanceof PistonMovingBlockEntity && 
+            (pistonMovingBlockEntity = (PistonMovingBlockEntity)blockEntity).isExtending() && 
+            (
+                pistonMovingBlockEntity.getProgress(0.0f) < 0.5f || 
+                level.getGameTime() == pistonMovingBlockEntity.getLastTicked() || 
+                ((ServerLevel)level).isHandlingTick())
+           ) {
             //设置n
             n = 2;
         }
@@ -471,7 +479,7 @@ boolean triggerEvent(blockState, level, blockPos, n, n2) {
         //移动前方方块，若无法移动，则方块事件执行失败
         if (!moveBlocks(level, blockPos, direction, true)) return false;
         //将活塞设置为伸出状态
-        //flags:0b01000011 放置移除更新 寻路更新 方块更新
+        //flags:0b01000011 抑制移除运算 寻路更新 方块更新
         level.setBlock(blockPos, blockState.setValue(EXTENDED, true), 67);
         //播放活塞伸出的声音
         level.playSound(null, blockPos, SoundEvents.PISTON_EXTEND, SoundSource.BLOCKS, 0.5f, level.random.nextFloat() * 0.25f + 0.6f);
@@ -604,7 +612,7 @@ boolean moveBlocks(level, blockPos, direction, bl) {
         //删除哈希表中方块
         hashMap.remove(object3);
         //将该方块设置成b36
-        //flags: 0b01101000 放置移除更新
+        //flags: 0b01101000 抑制移除运算
         level.setBlock((BlockPos)object3, Blocks.MOVING_PISTON.defaultBlockState().setValue(FACING, direction), 68);
         //将该方块设置成b36方块实体
         level.setBlockEntity((BlockPos)object3, MovingPistonBlock.newMovingBlockEntity(arrayList.get(n), direction, bl, false));
@@ -620,7 +628,7 @@ boolean moveBlocks(level, blockPos, direction, bl) {
         //从哈希表中删除
         hashMap.remove(blockPos2);
         //将活塞头的位置设置成b36
-        //flags: 0b01101000 放置移除更新
+        //flags: 0b01101000 抑制移除运算
         level.setBlock(blockPos2, blockState, 68);
         //将活塞头的位置设置成b36方块实体
         level.setBlockEntity(blockPos2, MovingPistonBlock.newMovingBlockEntity(object3, direction, true, true));
@@ -629,7 +637,7 @@ boolean moveBlocks(level, blockPos, direction, bl) {
     //对于哈希表中剩下的方块位置
     for (blockPos3 : hashMap.keySet()) {
         //设置成空气
-        //flags: 0b01010010 放置移除更新 无形状更新 寻路更新
+        //flags: 0b01010010 抑制移除运算 无形状更新 寻路更新
         level.setBlock(blockPos3, blockState, 82);
     }
     //对于哈希表中的所有方块
@@ -746,7 +754,7 @@ boolean moveBlocks(level, blockPos, direction, bl) {
 - 同向直线方块由前至后连续移动
 - 分支按“东西南北上下”的顺序移动
 
-而移除未被覆盖的方块，由于使用了哈希表，更新顺序随机。
+而移除未被覆盖的方块，由于使用了哈希表，更新顺序与位置和方向都有关。
 
 #### 普通活塞/粘性活塞只伸出
 
@@ -1035,7 +1043,7 @@ classDef default fill:#0000,stroke:#555,stroke-width:2px;
 
 一些物品可以通过使用活塞推拉特定的方块结构来完成复制。通常，可以使用活塞来进行复制的物品有铁轨、地毯以及点燃的TNT。这些物品复制都利用了同一活塞原理，即移动方块是一个个移动的，方块可以在创建列表后被破坏掉落，而在创建列表后重新以b36的形式被放置。
 
-根据活塞移动方块的更新方式，在移动方块创建b36的过程中不会发出任何方块更新，而在移动方块之后才会依次更新移动列表，无法直接做到在中途更新方块。但是，这其中的形状更新与放置移除运算可以发生方块更新
+根据活塞移动方块的更新方式，在移动方块创建b36的过程中不会发出任何方块更新，而在移动方块之后才会依次更新移动列表，无法直接做到在中途更新方块。但是，这其中的形状更新与放置移除运算可以发生方块更新。
 
 #### 亮起侦测器的移除运算
 
@@ -1077,7 +1085,7 @@ void onRemove(blockState, level, blockPos, blockState2, bl) {
 
 - 移动方块列表
   - 移动左侧侦测器，在目标位置创建b36方块
-  - 移动粘液块，在目标位置创建b36方块，覆盖了亮起的侦测器，侦测器执行移除运算，发出方块更新，铁轨发现下方为b36方块，掉落
+  - 移动粘液块，在目标位置创建b36方块，覆盖了亮起的侦测器，侦测器执行移除运算，发出方块更新，铁轨发现下方为上表面不完整的b36方块，掉落
   - ……
   - 移动铁轨，在目标位置创建b36方块
   - 移动其余方块
@@ -1145,7 +1153,7 @@ void onRemove(blockState, level, blockPos, blockState2, bl) {
     - 铁轨连锁掉落
 - ……
 
-铁轨虽然也是附着类方块，但它只会受到方块更新后才会掉落，不会响应形状更新，而且无法附着于b36方块上。
+铁轨虽然也是附着类方块，但它只会受到方块更新后才会掉落，不会响应形状更新，而且无法附着于上表面不完整的b36方块上。
 
 ### 信息不一致的方块事件
 

@@ -27,7 +27,7 @@ void onPlace(blockState, level, blockPos, blockState2, bl) {
 void checkIfExtend(level, blockPos, blockState) {
     //活塞的朝向
     direction = blockState.getValue(FACING);
-    //检查充能情况
+    //检查激活情况
     bl = getNeighborSignal(level, blockPos, direction);
     //如果活塞会被激活而没有伸出
     if (bl && !blockState.getValue(EXTENDED).booleanValue()) {
@@ -53,9 +53,9 @@ void checkIfExtend(level, blockPos, blockState) {
     }
 }
 
-//检查是否被充能
+//检查是否被激活
 boolean getNeighborSignal(level, blockPos, direction) {
-    //朝各个方向检查充能情况
+    //朝各个方向检查激活情况
     for (direction2 : Direction.values()) {
         //不检查伸出的方向
         if (direction2 == direction || !level.hasSignal(blockPos.relative(direction2), direction2)) continue;
@@ -67,7 +67,7 @@ boolean getNeighborSignal(level, blockPos, direction) {
     }
     //检查活塞上方的位置(引发qc特性的上位激活)
     blockPos2 = blockPos.above();
-    //朝各个方向检查充能情况
+    //朝各个方向检查激活情况
     for (direction3 : Direction.values()) {
         //不检查下方
         if (direction3 == Direction.DOWN || !level.hasSignal(blockPos2.relative(direction3), direction3)) continue;
