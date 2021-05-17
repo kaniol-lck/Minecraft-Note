@@ -323,7 +323,7 @@ isValidSpawnPostitionForType(mobCategory, structureFeatureManager, spawnerData, 
    2. 下方方块为水或含水方块
    3. 上方方块不能为可充能方块
 
-3. 水中生成生物需要的条件是：
+3. 岩浆中生成生物需要的条件是：
 
    1. 选中方块为岩浆
 
@@ -351,7 +351,8 @@ isValidSpawnPostitionForType(mobCategory, structureFeatureManager, spawnerData, 
    1. 基岩、屏障、玻璃及染色玻璃、活板门、树叶为不可生成方块
    2. 灵魂沙、雕刻的南瓜、南瓜灯、红石灯为可生成方块
    3. 冰和霜冰上仅可生成北极熊
-   4. 岩浆块上仅可生成免疫火焰伤害的生物
+   4. 树叶上仅可生成豹猫与鹦鹉
+   5. 岩浆块上仅可生成免疫火焰伤害的生物
 
 ```java
 //net/minecraft/world/level/NaturalSpawner.java:L268
